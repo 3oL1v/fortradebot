@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>CryptoTerminal</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --border-soft: #21262d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --green: #00ff88;
+      --red: #ff4444;
+      --blue: #2f81f7;
+      /* Безопасные зоны: дефолт из CSS env(), переопределяются из Telegram в JS. */
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      padding-top: var(--safe-top, 0px);
+      padding-bottom: calc(60px + var(--safe-bottom, 0px));
+    }
+
+    .app {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* --- 1. Шапка --- */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { font-size: 19px; font-weight: 800; letter-spacing: 0.2px; white-space: nowrap; }
+    .logo .accent { color: var(--green); }
+
+    .conn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    .conn .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green); animation: blink 1.4s infinite;
+    }
+    .conn.offline .dot { background: var(--red); animation: none; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* --- Анимации появления / мерцания --- */
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes reveal { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes flashGreen { 0%, 100% { color: var(--text); } 50% { color: var(--green); } }
+    @keyframes flashRed { 0%, 100% { color: var(--text); } 50% { color: var(--red); } }
+    @keyframes obflash { 0% { background: rgba(255, 255, 255, 0.14); } 100% { background: transparent; } }
+    .reveal { animation: reveal 0.3s ease; }
+    .flashGreen { animation: flashGreen 0.6s ease; }
+    .flashRed { animation: flashRed 0.6s ease; }
+
+    /* --- 2. Поиск --- */
+    .search { display: flex; flex-direction: column; gap: 10px; }
+    .search-box { position: relative; }
+    .search input {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--text);
+      padding: 15px 16px;
+      font-size: 16px;
+      outline: none;
+      transition: border-color .15s ease;
+    }
+    .search input::placeholder { color: var(--muted); }
+    .search input:focus { border-color: var(--green); }
+
+    .autocomplete {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      max-height: 240px; overflow-y: auto;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+    }
+    .ac-item {
+      padding: 11px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item:hover, .ac-item.active { background: rgba(0, 255, 136, .08); color: var(--green); }
+    .ac-pair { color: var(--muted); font-weight: 400; margin-left: 4px; font-size: 12px; }
+
+    .btn {
+      border: none; border-radius: 12px; font-size: 15px; font-weight: 700;
+      cursor: pointer; padding: 14px; transition: opacity .15s ease, transform .05s ease;
+    }
+    .btn:active { transform: scale(0.99); }
+    .btn:disabled { opacity: .55; cursor: default; }
+    .btn-green { background: var(--green); color: #00120a; width: 100%; }
+    .btn-blue  { background: var(--blue);  color: #fff; width: 100%; }
+
+    .quick { display: flex; gap: 8px; flex-wrap: wrap; }
+    .quick button {
+      flex: 1; min-width: 56px;
+      background: var(--card); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: 9px 0; font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: border-color .15s ease, color .15s ease;
+    }
+    .quick button:hover { border-color: var(--green); color: var(--green); }
+
+    .error {
+      background: rgba(255, 68, 68, .12); border: 1px solid var(--red); color: var(--red);
+      border-radius: 10px; padding: 14px 12px; font-size: 14px; text-align: center; font-weight: 600;
+    }
+
+    /* --- Skeleton-лоадер --- */
+    .skeleton { display: flex; flex-direction: column; gap: 14px; }
+    .skel {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    /* --- Карточка --- */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; scroll-margin-top: 12px; }
+    .card-title {
+      font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .7px; color: var(--muted); margin-bottom: 12px;
+    }
+
+    .up { color: var(--green); }
+    .down { color: var(--red); }
+    .muted { color: var(--muted); }
+
+    /* --- 3. Цена --- */
+    .price-main { text-align: center; margin-bottom: 14px; }
+    .price-symbol { font-size: 13px; color: var(--muted); margin-bottom: 2px; }
+    .price-value { font-size: 34px; font-weight: 800; letter-spacing: .3px; }
+    .price-change { font-size: 15px; font-weight: 700; margin-top: 4px; }
+    .price-updated { font-size: 11px; color: var(--muted); text-align: center; margin-top: 10px; }
+
+    .price-stats { display: flex; gap: 8px; }
+    .stat {
+      flex: 1; background: var(--bg); border: 1px solid var(--border-soft);
+      border-radius: 10px; padding: 9px 6px; text-align: center;
+    }
+    .stat .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .stat .val { font-size: 13px; font-weight: 700; margin-top: 3px; word-break: break-all; }
+
+    /* --- 4. Фандинг --- */
+    .funding-value { font-size: 30px; font-weight: 800; text-align: center; }
+    .funding-sub { text-align: center; font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .funding-sub b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    /* --- 5. Стакан --- */
+    .ob-side { display: flex; flex-direction: column; gap: 2px; }
+    .ob-row {
+      position: relative; display: grid; grid-template-columns: 1.1fr 1fr 1.3fr;
+      gap: 8px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; padding: 2px 2px;
+      border-radius: 3px;
+    }
+    .ob-row.flash { animation: obflash 0.8s ease; }
+    .ob-row .ob-price { font-weight: 600; }
+    .ob-row.ask .ob-price { color: var(--red); }
+    .ob-row.bid .ob-price { color: var(--green); }
+    .ob-amount { color: var(--muted); text-align: right; }
+    .ob-bar-wrap { position: relative; height: 13px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,.03); }
+    .ob-bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: 3px; }
+    .ob-row.ask .ob-bar { background: rgba(255, 68, 68, 0.15); }
+    .ob-row.bid .ob-bar { background: rgba(0, 255, 136, 0.15); }
+
+    .ob-mid {
+      text-align: center; font-size: 20px; font-weight: 800; padding: 8px 0 2px;
+      margin-top: 4px; border-top: 1px solid var(--border-soft); font-variant-numeric: tabular-nums;
+    }
+    .ob-spread {
+      text-align: center; font-size: 11px; color: var(--muted);
+      padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--border-soft);
+    }
+
+    /* --- 6. График --- */
+    .tf-row { display: flex; gap: 6px; margin-bottom: 12px; }
+    .tf-btn {
+      flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 8px; padding: 7px 0; font-size: 12px; font-weight: 700; cursor: pointer;
+      transition: all .15s ease;
+    }
+    .tf-btn.active { background: rgba(0,255,136,.12); border-color: var(--green); color: var(--green); }
+    #chart { width: 100%; height: 300px; }
+
+    /* --- 7. AI --- */
+    .ai-output { margin-top: 12px; font-size: 14px; line-height: 1.6; color: #fff; }
+    .ai-output strong { color: var(--green); }
+
+    /* --- 8. Индикаторы --- */
+    #rsiChart { width: 100%; height: 80px; margin-top: 6px; }
+    .ind-stats .val { font-size: 12px; white-space: nowrap; }
+
+    /* --- 9. Ликвидации --- */
+    .liq-tiles { display: flex; gap: 8px; }
+    .liq-tile { flex: 1; background: var(--bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 8px; text-align: center; }
+    .liq-tile .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .liq-tile .val { font-size: 18px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .liq-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin: 14px 0 6px; background: var(--border-soft); }
+    .liq-bar .longs { background: var(--red); }
+    .liq-bar .shorts { background: var(--green); }
+    .liq-label { text-align: center; font-size: 12px; color: var(--muted); }
+    #liqCanvas { width: 100%; height: 120px; display: block; margin-top: 12px; }
+
+    /* --- 10. Новости --- */
+    .news-item { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+    .news-item:last-child { border-bottom: none; }
+    .news-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
+    .news-dot.pos { background: var(--green); }
+    .news-dot.neg { background: var(--red); }
+    .news-dot.neu { background: var(--muted); }
+    .news-body { flex: 1; min-width: 0; }
+    .news-title { display: block; color: #fff; font-size: 13px; line-height: 1.4; text-decoration: none; }
+    .news-title:hover { color: var(--green); }
+    .news-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .news-empty { font-size: 13px; color: var(--muted); text-align: center; padding: 8px 0; }
+
+    footer { text-align: center; font-size: 11px; color: var(--muted); padding: 4px 0 8px; }
+    footer .accent { color: var(--green); }
+
+    /* --- Нижняя навигация --- */
+    .bottom-nav {
+      position: fixed; left: 0; bottom: 0; width: 100%; z-index: 100;
+      background: var(--card); border-top: 1px solid var(--border);
+      height: calc(60px + var(--safe-bottom, 0px));
+      padding-bottom: var(--safe-bottom, 0px);
+      display: flex;
+    }
+    .nav-tab {
+      flex: 1; background: none; border: none; cursor: pointer; padding: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      color: var(--muted); transition: color .15s ease;
+    }
+    .nav-ico { font-size: 18px; line-height: 1; opacity: .5; transition: opacity .15s ease; }
+    .nav-lbl { font-size: 10px; }
+    .nav-tab.active { color: var(--green); }
+    .nav-tab.active .nav-ico { opacity: 1; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- 1. ШАПКА -->
+    <header class="header">
+      <div class="logo" id="headerTitle">Crypto<span class="accent">Terminal</span></div>
+      <div class="conn" id="conn"><span class="dot"></span><span id="connText">Live</span></div>
+    </header>
+
+    <!-- 2. ПОИСК -->
+    <div class="search">
+      <div class="search-box">
+        <input id="symbolInput" type="text" placeholder="Введите монету: BTC, ETH, SOL..." autocomplete="off" />
+        <div class="autocomplete hidden" id="autocomplete"></div>
+      </div>
+      <button class="btn btn-green" id="analyzeBtn">Анализировать</button>
+      <div class="quick" id="quick">
+        <button data-sym="BTC">BTC</button>
+        <button data-sym="ETH">ETH</button>
+        <button data-sym="SOL">SOL</button>
+        <button data-sym="BNB">BNB</button>
+        <button data-sym="XRP">XRP</button>
+      </div>
+    </div>
+
+    <div class="error hidden" id="error"></div>
+
+    <!-- Skeleton-лоадер -->
+    <div class="skeleton hidden" id="skeleton">
+      <div class="skel" style="height:90px"></div>
+      <div class="skel" style="height:150px"></div>
+      <div class="skel" style="height:220px"></div>
+    </div>
+
+    <!-- 3. ЦЕНА -->
+    <section class="card hidden" id="priceSection">
+      <div class="price-main">
+        <div class="price-symbol" id="priceSymbol">—</div>
+        <div class="price-value" id="priceValue">--</div>
+        <div class="price-change" id="priceChange">--</div>
+      </div>
+      <div class="price-stats">
+        <div class="stat"><div class="label">High 24h</div><div class="val" id="statHigh">--</div></div>
+        <div class="stat"><div class="label">Low 24h</div><div class="val" id="statLow">--</div></div>
+        <div class="stat"><div class="label">Volume 24h</div><div class="val" id="statVol">--</div></div>
+      </div>
+      <div class="price-updated" id="priceUpdated"></div>
+    </section>
+
+    <!-- 4. ФАНДИНГ -->
+    <section class="card hidden" id="fundingSection">
+      <div class="card-title">Funding Rate</div>
+      <div class="funding-value" id="fundingValue">--</div>
+      <div class="funding-sub">Следующий фандинг через <b id="fundingCountdown">--:--:--</b></div>
+    </section>
+
+    <!-- 5. СТАКАН -->
+    <section class="card hidden" id="orderbookSection">
+      <div class="card-title">Стакан ордеров</div>
+      <div class="ob-side" id="obAsks"></div>
+      <div class="ob-mid" id="obMid">--</div>
+      <div class="ob-spread" id="obSpread"></div>
+      <div class="ob-side" id="obBids"></div>
+    </section>
+
+    <!-- 6. ГРАФИК -->
+    <section class="card hidden" id="chartSection">
+      <div class="card-title">График</div>
+      <div class="tf-row" id="tfRow">
+        <button class="tf-btn" data-interval="15m">15m</button>
+        <button class="tf-btn active" data-interval="1h">1h</button>
+        <button class="tf-btn" data-interval="4h">4h</button>
+        <button class="tf-btn" data-interval="1d">1D</button>
+      </div>
+      <div id="chart"></div>
+      <div id="rsiChart"></div>
+    </section>
+
+    <!-- 7. ИНДИКАТОРЫ -->
+    <section class="card hidden" id="indicatorsSection">
+      <div class="card-title">Индикаторы</div>
+      <div class="price-stats ind-stats">
+        <div class="stat"><div class="label">RSI 14</div><div class="val" id="indRsi">--</div></div>
+        <div class="stat"><div class="label">Тренд EMA</div><div class="val" id="indEma">--</div></div>
+        <div class="stat"><div class="label">Объём</div><div class="val" id="indVol">--</div></div>
+      </div>
+    </section>
+
+    <!-- 8. ЛИКВИДАЦИИ -->
+    <section class="card hidden" id="liqSection">
+      <div class="card-title">Ликвидации</div>
+      <div class="liq-tiles">
+        <div class="liq-tile"><div class="label">Лонги ликвидировано</div><div class="val down" id="liqLongs">--</div></div>
+        <div class="liq-tile"><div class="label">Шорты ликвидировано</div><div class="val up" id="liqShorts">--</div></div>
+      </div>
+      <div class="liq-bar">
+        <div class="longs" id="liqBarLongs" style="width:50%"></div>
+        <div class="shorts" id="liqBarShorts" style="width:50%"></div>
+      </div>
+      <div class="liq-label" id="liqLabel">--</div>
+      <canvas id="liqCanvas"></canvas>
+    </section>
+
+    <!-- 9. НОВОСТИ -->
+    <section class="card hidden" id="newsSection">
+      <div class="card-title">Новости</div>
+      <div id="newsList"></div>
+    </section>
+
+    <!-- 10. AI АНАЛИЗ -->
+    <section class="card hidden" id="aiSection">
+      <div class="card-title">AI Анализ</div>
+      <button class="btn btn-blue" id="aiBtn">Получить анализ</button>
+      <div class="ai-output hidden" id="aiOutput"></div>
+    </section>
+
+    <footer>Powered by <span class="accent">BingX</span></footer>
+  </div>
+
+  <!-- Нижняя навигация -->
+  <nav class="bottom-nav" id="bottomNav">
+    <button class="nav-tab active" data-target="priceSection"><span class="nav-ico">📊</span><span class="nav-lbl">График</span></button>
+    <button class="nav-tab" data-target="orderbookSection"><span class="nav-ico">📖</span><span class="nav-lbl">Стакан</span></button>
+    <button class="nav-tab" data-target="liqSection"><span class="nav-ico">💧</span><span class="nav-lbl">Ликвидации</span></button>
+    <button class="nav-tab" data-target="newsSection"><span class="nav-ico">📰</span><span class="nav-lbl">Новости</span></button>
+  </nav>
+
+  <script>
+    const API_BASE = window.location.origin;
+
+    // --- Telegram WebApp ---
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      try { tg.ready(); } catch (e) {}
+      try { tg.expand(); } catch (e) {}            // раскрыть на весь экран
+      try { tg.setHeaderColor("#0d1117"); } catch (e) {}
+      try { tg.setBackgroundColor("#0d1117"); } catch (e) {}
+    }
+    // Безопасные зоны (notch / home bar). Корректно обрабатываем отсутствие данных.
+    function applySafeArea() {
+      const top = (tg && tg.safeAreaInset && tg.safeAreaInset.top) || 0;
+      const bottom = (tg && tg.safeAreaInset && tg.safeAreaInset.bottom) || 0;
+      const s = document.documentElement.style;
+      s.setProperty("--safe-top", top + "px");
+      s.setProperty("--safe-bottom", bottom + "px");
+    }
+    if (tg && (tg.safeAreaInset)) applySafeArea();
+    if (tg && tg.onEvent) { try { tg.onEvent("safeAreaChanged", applySafeArea); } catch (e) {} }
+
+    // --- Популярные монеты для автодополнения ---
+    const POPULAR = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "DOT", "LINK",
+      "MATIC", "UNI", "ATOM", "LTC", "BCH", "NEAR", "APT", "ARB", "OP", "INJ"];
+
+    // --- Состояние ---
+    const state = {
+      symbol: null, interval: "1h",
+      price: null, changeUp: true,
+      priceChange: null, fundingRate: null, nextFundingTime: null,
+      high24h: null, low24h: null, volume24h: null,
+    };
+    let activeIntervals = [];          // все setInterval id — очищаются при смене монеты
+    let lastPriceTs = 0;               // когда обновили цену (для «N сек назад»)
+    let fundingRefetching = false;
+    let prevAsk = new Map(), prevBid = new Map();   // прошлый стакан — для подсветки изменений
+
+    let chart = null, candleSeries = null, chartObserver = null;
+    let emaSeries20 = null, emaSeries50 = null;
+    let rsiChart = null, rsiSeries = null, rsiObserver = null;
+
+    // --- Ссылки на DOM ---
+    const $ = (id) => document.getElementById(id);
+    const el = {
+      headerTitle: $("headerTitle"), input: $("symbolInput"), autocomplete: $("autocomplete"),
+      analyzeBtn: $("analyzeBtn"), quick: $("quick"),
+      error: $("error"), skeleton: $("skeleton"), conn: $("conn"), connText: $("connText"),
+      bottomNav: $("bottomNav"),
+      priceSection: $("priceSection"), priceSymbol: $("priceSymbol"),
+      priceValue: $("priceValue"), priceChange: $("priceChange"), priceUpdated: $("priceUpdated"),
+      statHigh: $("statHigh"), statLow: $("statLow"), statVol: $("statVol"),
+      fundingSection: $("fundingSection"), fundingValue: $("fundingValue"), fundingCountdown: $("fundingCountdown"),
+      orderbookSection: $("orderbookSection"), obAsks: $("obAsks"), obBids: $("obBids"), obMid: $("obMid"), obSpread: $("obSpread"),
+      chartSection: $("chartSection"), tfRow: $("tfRow"), chart: $("chart"), rsiChart: $("rsiChart"),
+      indicatorsSection: $("indicatorsSection"), indRsi: $("indRsi"), indEma: $("indEma"), indVol: $("indVol"),
+      liqSection: $("liqSection"), liqLongs: $("liqLongs"), liqShorts: $("liqShorts"),
+      liqBarLongs: $("liqBarLongs"), liqBarShorts: $("liqBarShorts"), liqLabel: $("liqLabel"), liqCanvas: $("liqCanvas"),
+      newsSection: $("newsSection"), newsList: $("newsList"),
+      aiSection: $("aiSection"), aiBtn: $("aiBtn"), aiOutput: $("aiOutput"),
+    };
+
+    const DATA_SECTIONS = ["priceSection", "fundingSection", "orderbookSection", "chartSection",
+      "indicatorsSection", "liqSection", "newsSection", "aiSection"];
+
+    // --- Форматирование чисел ---
+    // Знаков после запятой для цены: ~5 значащих цифр, мин 2, макс 8
+    // (BTC→2, SOL→2-3, XRP→4, мелкие монеты→6-8).
+    function priceDecimals(n) {
+      n = Math.abs(Number(n));
+      if (!isFinite(n) || n === 0) return 2;
+      return Math.min(8, Math.max(2, 4 - Math.floor(Math.log10(n))));
+    }
+    // Кол-во знаков после запятой в числе (JS даёт кратчайшую запись — точно отражает тик).
+    function countDecimals(n) {
+      const s = Number(n).toString();
+      if (s.includes("e") || s.includes("E")) return 8;
+      const i = s.indexOf(".");
+      return i < 0 ? 0 : s.length - i - 1;
+    }
+    function formatPrice(v, decimals) {
+      if (v === null || v === undefined || isNaN(v)) return "--";
+      const n = Number(v);
+      const d = decimals == null ? priceDecimals(n) : Math.min(8, Math.max(0, decimals));
+      return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+    function formatVolume(v) {
+      if (v === null || v === undefined || isNaN(v)) return "--";
+      return Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 });
+    }
+    function formatAmount(v) {
+      if (v === null || v === undefined || isNaN(v)) return "--";
+      return Number(v).toLocaleString("en-US", { maximumFractionDigits: 4 });
+    }
+    function formatPercent(v, decimals = 2) {
+      if (v === null || v === undefined || isNaN(v)) return "--";
+      const n = Number(v);
+      return (n > 0 ? "+" : "") + n.toFixed(decimals) + "%";
+    }
+    function formatUsd(v) {
+      const n = Number(v) || 0, a = Math.abs(n);
+      if (a >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+      if (a >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
+      if (a >= 1e3) return "$" + (n / 1e3).toFixed(1) + "K";
+      return "$" + n.toFixed(0);
+    }
+    function fmtCountdown(ms) {
+      if (!ms || ms <= 0) return "00:00:00";
+      const s = Math.floor(ms / 1000);
+      const p = (x) => String(x).padStart(2, "0");
+      return `${p(Math.floor(s / 3600))}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}`;
+    }
+    function escapeHtml(s) {
+      return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function safeHref(url) {
+      try {
+        const u = new URL(url || "#", window.location.href);
+        return (u.protocol === "http:" || u.protocol === "https:") ? u.href : "#";
+      } catch (e) {
+        return "#";
+      }
+    }
+
+    // --- UI-помощники ---
+    const show = (node, on) => node.classList.toggle("hidden", !on);
+    // Показ карточки с анимацией появления (перезапуск через reflow).
+    function showSection(node) {
+      node.classList.remove("hidden", "reveal");
+      void node.offsetWidth;
+      node.classList.add("reveal");
+    }
+    function hideAllSections() { DATA_SECTIONS.forEach((k) => show(el[k], false)); }
+    // Flash-эффект (перезапуск анимации).
+    function flashEl(node, cls) {
+      node.classList.remove("flashGreen", "flashRed");
+      void node.offsetWidth;
+      node.classList.add(cls);
+    }
+    function setConnection(ok) {
+      el.conn.classList.toggle("offline", !ok);
+      el.connText.textContent = ok ? "Live" : "Offline";
+    }
+    function showError(msg) { el.error.textContent = msg; show(el.error, true); }
+    function hideError() { show(el.error, false); }
+
+    // --- Интервалы автообновления ---
+    function clearIntervals() { activeIntervals.forEach(clearInterval); activeIntervals = []; }
+    function startAllTimers() {
+      clearIntervals();
+      activeIntervals.push(setInterval(updatePrice, 10000));       // цена — 10с
+      activeIntervals.push(setInterval(refreshOrderbook, 5000));   // стакан — 5с
+      activeIntervals.push(setInterval(refreshIndicators, 60000)); // индикаторы — 60с
+      activeIntervals.push(setInterval(secondTick, 1000));         // отсчёт + «N сек назад» — 1с
+    }
+    // Раз в секунду: отсчёт до фандинга + «обновлено N сек назад».
+    function secondTick() {
+      if (lastPriceTs) {
+        el.priceUpdated.textContent = `Обновлено: ${Math.floor((Date.now() - lastPriceTs) / 1000)} сек назад`;
+      }
+      if (state.nextFundingTime) {
+        const diff = state.nextFundingTime - Date.now();
+        el.fundingCountdown.textContent = fmtCountdown(diff);
+        if (diff <= 0 && !fundingRefetching) {
+          fundingRefetching = true;
+          refreshFunding().finally(() => { fundingRefetching = false; });
+        }
+      }
+    }
+
+    // --- Главная загрузка символа ---
+    async function loadSymbol(rawSymbol) {
+      const symbol = (rawSymbol || "").trim().toUpperCase();
+      if (!symbol) { el.input.focus(); return; }
+
+      state.symbol = symbol;
+      el.input.value = symbol;
+      show(el.autocomplete, false);
+      hideError();
+      clearIntervals();
+      prevAsk = new Map(); prevBid = new Map();
+      hideAllSections();
+      show(el.skeleton, true);
+
+      try {
+        const [tRes, oRes, fRes, kRes, nRes, lRes, iRes] = await Promise.all([
+          fetch(`${API_BASE}/api/ticker/${symbol}`),
+          fetch(`${API_BASE}/api/orderbook/${symbol}`),
+          fetch(`${API_BASE}/api/funding/${symbol}`),
+          fetch(`${API_BASE}/api/klines/${symbol}?interval=${state.interval}&limit=100`),
+          fetch(`${API_BASE}/api/news/${symbol}`),
+          fetch(`${API_BASE}/api/liquidations/${symbol}`),
+          fetch(`${API_BASE}/api/indicators/${symbol}?interval=${state.interval}`),
+        ]);
+
+        if (!tRes.ok) throw new Error("not_found");
+        const ticker = await tRes.json();
+        const orderbook = oRes.ok ? await oRes.json() : null;
+        const funding = fRes.ok ? await fRes.json() : null;
+        const klines = kRes.ok ? await kRes.json() : [];
+        const news = nRes.ok ? await nRes.json() : [];
+        const liquidations = lRes.ok ? await lRes.json() : null;
+        const indicators = iRes.ok ? await iRes.json() : null;
+
+        renderPrice(ticker);
+        showSection(el.priceSection);
+
+        if (funding) { renderFunding(funding); showSection(el.fundingSection); }
+
+        if (orderbook) { showSection(el.orderbookSection); renderOrderbook(orderbook); }
+
+        showSection(el.chartSection);
+        renderChart(klines);
+
+        if (indicators) { showSection(el.indicatorsSection); renderIndicators(indicators); }
+
+        if (liquidations) { showSection(el.liqSection); renderLiquidations(liquidations); }
+
+        renderNews(news);
+        showSection(el.newsSection);
+
+        showSection(el.aiSection);
+        show(el.aiOutput, false);
+
+        setConnection(true);
+        startAllTimers();
+      } catch (err) {
+        console.error("loadSymbol failed:", err);
+        setConnection(false);
+        hideAllSections();
+        showError("Монета не найдена. Проверьте символ.");
+      } finally {
+        show(el.skeleton, false);
+      }
+    }
+
+    // --- 3. Цена ---
+    function renderPrice(t) {
+      const prev = state.price;
+      const up = Number(t.priceChangePercent) >= 0;
+      state.price = t.price;
+      state.changeUp = up;
+      state.priceChange = t.priceChangePercent;
+      state.high24h = t.high; state.low24h = t.low; state.volume24h = t.volume;
+      lastPriceTs = Date.now();
+
+      el.headerTitle.innerHTML = `${escapeHtml(t.symbol)}<span class="accent">/USDT</span>`;
+      el.priceSymbol.textContent = `${t.symbol} / USDT`;
+      el.priceValue.textContent = "$" + formatPrice(t.price);
+      el.priceChange.textContent = formatPercent(t.priceChangePercent);
+      el.priceChange.className = "price-change " + (up ? "up" : "down");
+
+      // Flash при изменении цены: зелёный вверх, красный вниз.
+      if (prev != null && Number(t.price) !== Number(prev)) {
+        flashEl(el.priceValue, Number(t.price) > Number(prev) ? "flashGreen" : "flashRed");
+      }
+
+      el.statHigh.textContent = "$" + formatPrice(t.high);
+      el.statLow.textContent = "$" + formatPrice(t.low);
+      el.statVol.textContent = formatVolume(t.volume);
+      el.priceUpdated.textContent = "Обновлено: 0 сек назад";
+
+      if (!el.orderbookSection.classList.contains("hidden")) {
+        el.obMid.textContent = "$" + formatPrice(state.price);
+        el.obMid.className = "ob-mid " + (up ? "up" : "down");
+      }
+    }
+
+    async function updatePrice() {
+      if (!state.symbol) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/ticker/${state.symbol}`);
+        if (!res.ok) { setConnection(false); return; }
+        renderPrice(await res.json());
+        setConnection(true);
+      } catch (e) { setConnection(false); }
+    }
+
+    // --- 4. Фандинг ---
+    function renderFunding(f) {
+      const rate = Number(f.fundingRate);
+      state.fundingRate = f.fundingRate;
+      state.nextFundingTime = f.nextFundingTime;
+      el.fundingValue.textContent = formatPercent(rate, 4);
+      el.fundingValue.className = "funding-value " + (rate >= 0 ? "up" : "down");
+    }
+    async function refreshFunding() {
+      if (!state.symbol) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/funding/${state.symbol}`);
+        if (res.ok) renderFunding(await res.json());
+      } catch (e) { console.error("refreshFunding:", e); }
+    }
+
+    // --- 5. Стакан ---
+    function renderOrderbook(data) {
+      const asks = (data.asks || []).slice(0, 10); // по возрастанию: лучший (низший) первый
+      const bids = (data.bids || []).slice(0, 10); // по убыванию: лучший (высший) первый
+
+      const vols = [...asks, ...bids].map((l) => Number(l[1]) || 0);
+      const maxVol = Math.max(1e-9, ...vols);
+
+      // Точность цены — из самих уровней (реальный тик): макс. знаков после запятой.
+      let obDec = 2;
+      for (const l of [...asks, ...bids]) obDec = Math.max(obDec, countDecimals(Number(l[0])));
+      obDec = Math.min(8, obDec);
+
+      const row = (level, side, prevMap) => {
+        const price = Number(level[0]), vol = Number(level[1]);
+        const w = Math.min(100, (vol / maxVol) * 100);
+        const prevVol = prevMap.get(price);
+        const flashCls = (prevVol !== undefined && prevVol !== vol) ? " flash" : "";
+        return `<div class="ob-row ${side}${flashCls}">
+          <span class="ob-price">${formatPrice(price, obDec)}</span>
+          <span class="ob-amount">${formatAmount(vol)}</span>
+          <span class="ob-bar-wrap"><span class="ob-bar" style="width:${w}%"></span></span>
+        </div>`;
+      };
+
+      // asks разворачиваем: наименьший ask внизу, ближе к цене.
+      el.obAsks.innerHTML = asks.slice().reverse().map((a) => row(a, "ask", prevAsk)).join("");
+      el.obBids.innerHTML = bids.map((b) => row(b, "bid", prevBid)).join("");
+
+      // Спред между лучшим bid и ask.
+      const bestAsk = asks.length ? Number(asks[0][0]) : null;
+      const bestBid = bids.length ? Number(bids[0][0]) : null;
+      if (bestAsk != null && bestBid != null) {
+        const spread = bestAsk - bestBid;
+        const pct = bestBid ? (spread / bestBid * 100) : 0;
+        el.obSpread.textContent = `Spread: $${formatPrice(spread, obDec)} (${pct.toFixed(pct < 0.1 ? 3 : 2)}%)`;
+      } else {
+        el.obSpread.textContent = "";
+      }
+
+      el.obMid.textContent = "$" + formatPrice(state.price, obDec);
+      el.obMid.className = "ob-mid " + (state.changeUp ? "up" : "down");
+
+      // Запоминаем для подсветки изменений на следующем обновлении.
+      prevAsk = new Map(asks.map((l) => [Number(l[0]), Number(l[1])]));
+      prevBid = new Map(bids.map((l) => [Number(l[0]), Number(l[1])]));
+    }
+    async function refreshOrderbook() {
+      if (!state.symbol) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/orderbook/${state.symbol}`);
+        if (res.ok) renderOrderbook(await res.json());
+      } catch (e) { console.error("refreshOrderbook:", e); }
+    }
+
+    // --- 6. График (TradingView Lightweight Charts) ---
+    function makeCandleSeries(c) {
+      const opts = {
+        upColor: "#00ff88", downColor: "#ff4444",
+        borderUpColor: "#00ff88", borderDownColor: "#ff4444",
+        wickUpColor: "#00ff88", wickDownColor: "#ff4444",
+      };
+      if (typeof c.addCandlestickSeries === "function") return c.addCandlestickSeries(opts);
+      return c.addSeries(LightweightCharts.CandlestickSeries, opts);
+    }
+    function makeLineSeries(c, opts) {
+      if (typeof c.addLineSeries === "function") return c.addLineSeries(opts);
+      return c.addSeries(LightweightCharts.LineSeries, opts);
+    }
+
+    function ensureChart() {
+      if (chart) return;
+      if (typeof LightweightCharts === "undefined") {
+        el.chart.innerHTML = '<div class="muted" style="padding:24px;text-align:center">Не удалось загрузить библиотеку графиков</div>';
+        return;
+      }
+      chart = LightweightCharts.createChart(el.chart, {
+        width: el.chart.clientWidth, height: 300,
+        layout: { background: { color: "#161b22" }, textColor: "#8b949e" },
+        grid: { vertLines: { color: "#21262d" }, horzLines: { color: "#21262d" } },
+        rightPriceScale: { borderColor: "#30363d" },
+        timeScale: { borderColor: "#30363d", timeVisible: true, secondsVisible: false },
+      });
+      candleSeries = makeCandleSeries(chart);
+      chartObserver = new ResizeObserver(() => { if (chart) chart.applyOptions({ width: el.chart.clientWidth }); });
+      chartObserver.observe(el.chart);
+    }
+
+    function renderChart(klines) {
+      ensureChart();
+      if (!candleSeries) return;
+      const seen = new Set();
+      const data = (klines || [])
+        .filter((k) => k && k.time != null)
+        .map((k) => ({
+          time: Math.floor(Number(k.time) / 1000),
+          open: Number(k.open), high: Number(k.high), low: Number(k.low), close: Number(k.close),
+        }))
+        .sort((a, b) => a.time - b.time)
+        .filter((d) => (seen.has(d.time) ? false : (seen.add(d.time), true)));
+      candleSeries.setData(data);
+      chart.timeScale().fitContent();
+    }
+
+    function ensureEmaSeries() {
+      if (!chart || emaSeries20) return;
+      const base = { lineWidth: 1, priceLineVisible: false, lastValueVisible: false };
+      emaSeries20 = makeLineSeries(chart, { ...base, color: "#00ff88" });
+      emaSeries50 = makeLineSeries(chart, { ...base, color: "#ffaa00" });
+    }
+
+    function ensureRsiChart() {
+      if (rsiChart || typeof LightweightCharts === "undefined") return;
+      rsiChart = LightweightCharts.createChart(el.rsiChart, {
+        width: el.rsiChart.clientWidth, height: 80,
+        layout: { background: { color: "#161b22" }, textColor: "#8b949e" },
+        grid: { vertLines: { color: "#21262d" }, horzLines: { color: "#21262d" } },
+        rightPriceScale: { borderColor: "#30363d" },
+        timeScale: { borderColor: "#30363d", timeVisible: true, secondsVisible: false },
+      });
+      rsiSeries = makeLineSeries(rsiChart, { color: "#ffffff", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+      const dashed = LightweightCharts.LineStyle?.Dashed ?? 2;
+      rsiSeries.createPriceLine({ price: 70, color: "#ff4444", lineWidth: 1, lineStyle: dashed, axisLabelVisible: true, title: "70" });
+      rsiSeries.createPriceLine({ price: 30, color: "#00ff88", lineWidth: 1, lineStyle: dashed, axisLabelVisible: true, title: "30" });
+      rsiObserver = new ResizeObserver(() => { if (rsiChart) rsiChart.applyOptions({ width: el.rsiChart.clientWidth }); });
+      rsiObserver.observe(el.rsiChart);
+    }
+
+    function toLinePoints(arr) {
+      const seen = new Set();
+      return (arr || [])
+        .filter((p) => p && p.time != null && p.value != null)
+        .map((p) => ({ time: Math.floor(Number(p.time) / 1000), value: Number(p.value) }))
+        .sort((a, b) => a.time - b.time)
+        .filter((p) => (seen.has(p.time) ? false : (seen.add(p.time), true)));
+    }
+
+    // --- 7. Индикаторы ---
+    function renderIndicators(data) {
+      const cur = data.current || {};
+      const rsi = cur.rsi;
+      el.indRsi.textContent = (rsi == null) ? "--" : Number(rsi).toFixed(1);
+      el.indRsi.className = "val " + (rsi > 70 ? "down" : rsi < 30 ? "up" : "");
+
+      const bull = cur.trend === "bullish";
+      el.indEma.textContent = bull ? "EMA20 > EMA50" : "EMA20 < EMA50";
+      el.indEma.className = "val " + (bull ? "up" : "down");
+
+      const r = cur.volumeRatio;
+      el.indVol.textContent = (r == null) ? "--" : Number(r).toFixed(1) + "x SMA";
+      el.indVol.className = "val " + (r > 1 ? "up" : "");
+
+      if (chart && candleSeries) {
+        ensureEmaSeries();
+        if (emaSeries20) emaSeries20.setData(toLinePoints(data.ema20));
+        if (emaSeries50) emaSeries50.setData(toLinePoints(data.ema50));
+      }
+      ensureRsiChart();
+      if (rsiSeries) {
+        rsiSeries.setData(toLinePoints(data.rsi));
+        rsiChart.timeScale().fitContent();
+      }
+    }
+    async function refreshIndicators() {
+      if (!state.symbol) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/indicators/${state.symbol}?interval=${state.interval}`);
+        if (res.ok) renderIndicators(await res.json());
+      } catch (e) { console.error("refreshIndicators:", e); }
+    }
+
+    // --- 8. Ликвидации ---
+    function renderLiquidations(data) {
+      const longs = data.longs || [], shorts = data.shorts || [];
+      const longSum = longs.reduce((s, p) => s + (Number(p[1]) || 0), 0);
+      const shortSum = shorts.reduce((s, p) => s + (Number(p[1]) || 0), 0);
+
+      el.liqLongs.textContent = formatUsd(longSum);
+      el.liqShorts.textContent = formatUsd(shortSum);
+
+      const dom = Number(data.longsDominance);
+      const d = isNaN(dom) ? 50 : Math.max(0, Math.min(100, dom));
+      el.liqBarLongs.style.width = d + "%";
+      el.liqBarShorts.style.width = (100 - d) + "%";
+      el.liqLabel.textContent =
+        d > 60 ? "Рынок давит на лонги" : d < 40 ? "Рынок давит на шорты" : "Давление равномерное";
+
+      drawLiqCanvas(longs, shorts);
+    }
+
+    function drawLiqCanvas(longs, shorts) {
+      const cv = el.liqCanvas;
+      const cssW = cv.clientWidth || 320, cssH = 120;
+      const dpr = window.devicePixelRatio || 1;
+      cv.width = cssW * dpr; cv.height = cssH * dpr;
+      const ctx = cv.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const n = Math.max(longs.length, shorts.length);
+      let max = 0;
+      for (let i = 0; i < n; i++) max = Math.max(max, Number(longs[i]?.[1]) || 0, Number(shorts[i]?.[1]) || 0);
+      if (max <= 0) { ctx.fillStyle = "#30363d"; ctx.fillRect(0, cssH - 1, cssW, 1); return; }
+
+      const slot = cssW / n, bw = Math.max(1, slot * 0.4);
+      for (let i = 0; i < n; i++) {
+        const x = i * slot;
+        const lh = ((Number(longs[i]?.[1]) || 0) / max) * (cssH - 2);
+        const sh = ((Number(shorts[i]?.[1]) || 0) / max) * (cssH - 2);
+        ctx.fillStyle = "#ff4444"; ctx.fillRect(x + slot * 0.08, cssH - lh, bw, lh);
+        ctx.fillStyle = "#00ff88"; ctx.fillRect(x + slot * 0.52, cssH - sh, bw, sh);
+      }
+    }
+
+    // --- 9. Новости ---
+    function timeAgo(iso) {
+      const t = new Date(iso).getTime();
+      if (isNaN(t)) return "";
+      const diff = Date.now() - t;
+      if (diff < 60000) return "только что";
+      const min = Math.floor(diff / 60000);
+      if (min < 60) return `${min} минут назад`;
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return `${hr} часов назад`;
+      const days = Math.floor(hr / 24);
+      if (days === 1) return "вчера";
+      if (days < 7) return `${days} дн назад`;
+      return new Date(t).toLocaleDateString("ru-RU");
+    }
+
+    function renderNews(items) {
+      const list = items || [];
+      if (!list.length) {
+        el.newsList.innerHTML = '<div class="news-empty">Нет свежих новостей</div>';
+        return;
+      }
+      el.newsList.innerHTML = list.map((it) => {
+        const pos = (it.votes && it.votes.positive) || 0;
+        const neg = (it.votes && it.votes.negative) || 0;
+        const dot = pos > neg ? "pos" : neg > pos ? "neg" : "neu";
+        const when = timeAgo(it.published_at);
+        const src = escapeHtml(it.source || "—");
+        const meta = when ? `${src} · ${when}` : src;
+        const url = safeHref(it.url);
+        return `<div class="news-item">
+          <span class="news-dot ${dot}"></span>
+          <div class="news-body">
+            <a class="news-title" href="${url}" target="_blank" rel="noopener noreferrer">${escapeHtml(it.title || "")}</a>
+            <div class="news-meta">${meta}</div>
+          </div>
+        </div>`;
+      }).join("");
+    }
+
+    async function changeTimeframe(interval, btn) {
+      state.interval = interval;
+      [...el.tfRow.children].forEach((b) => b.classList.toggle("active", b === btn));
+      if (!state.symbol) return;
+      try {
+        const [kRes, iRes] = await Promise.all([
+          fetch(`${API_BASE}/api/klines/${state.symbol}?interval=${interval}&limit=100`),
+          fetch(`${API_BASE}/api/indicators/${state.symbol}?interval=${interval}`),
+        ]);
+        renderChart(kRes.ok ? await kRes.json() : []);
+        if (iRes.ok) renderIndicators(await iRes.json());
+      } catch (e) { console.error("changeTimeframe:", e); }
+    }
+
+    // --- 10. AI-анализ ---
+    async function getAnalysis() {
+      if (!state.symbol) return;
+      show(el.aiOutput, true);
+      el.aiOutput.textContent = "";
+      el.aiBtn.disabled = true;
+      el.aiBtn.textContent = "Загружаю анализ...";
+      try {
+        const res = await fetch(`${API_BASE}/api/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol: state.symbol, price: state.price, priceChange: state.priceChange,
+            fundingRate: state.fundingRate, high24h: state.high24h, low24h: state.low24h, volume24h: state.volume24h,
+          }),
+        });
+        if (!res.ok) throw new Error("ai_unavailable");
+        const data = await res.json();
+        renderAnalysis(data.analysis || "");
+      } catch (e) {
+        console.error("getAnalysis:", e);
+        el.aiOutput.textContent = "⚠️ AI недоступен. Попробуйте позже.";
+      } finally {
+        el.aiBtn.disabled = false;
+        el.aiBtn.textContent = "Обновить анализ";
+      }
+    }
+    function renderAnalysis(text) {
+      el.aiOutput.innerHTML = (text || "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\n/g, "<br>");
+    }
+
+    // --- Автодополнение поиска ---
+    function renderAutocomplete() {
+      const q = el.input.value.trim().toUpperCase();
+      if (!q) { show(el.autocomplete, false); return; }
+      const matches = POPULAR.filter((c) => c.startsWith(q) && c !== q).slice(0, 8);
+      if (!matches.length) { show(el.autocomplete, false); return; }
+      el.autocomplete.innerHTML = matches
+        .map((c) => `<div class="ac-item" data-sym="${c}">${c}<span class="ac-pair">/USDT</span></div>`)
+        .join("");
+      show(el.autocomplete, true);
+    }
+
+    // --- Нижняя навигация: scroll-spy + клик ---
+    const NAV_TARGETS = ["priceSection", "orderbookSection", "liqSection", "newsSection"];
+    function setActiveTab(targetId) {
+      [...el.bottomNav.children].forEach((b) => b.classList.toggle("active", b.dataset.target === targetId));
+    }
+    // Активная секция = последняя, чей верх прошёл порог у верха экрана
+    // (надёжно даже для коротких блоков, в отличие от тонкой полосы rootMargin).
+    function pickActiveTab() {
+      let active = null;
+      for (const id of NAV_TARGETS) {
+        const node = el[id];
+        if (!node || node.classList.contains("hidden")) continue;
+        if (node.getBoundingClientRect().top <= 130) active = id;
+      }
+      if (active) setActiveTab(active);
+    }
+    function setupNavObserver() {
+      // IntersectionObserver триггерит пересчёт при скролле сквозь секции.
+      const obs = new IntersectionObserver(pickActiveTab, { threshold: [0, 0.25, 0.5, 0.75, 1] });
+      NAV_TARGETS.forEach((id) => { if (el[id]) obs.observe(el[id]); });
+    }
+
+    // --- События ---
+    el.analyzeBtn.addEventListener("click", () => loadSymbol(el.input.value));
+    el.input.addEventListener("keydown", (e) => { if (e.key === "Enter") { show(el.autocomplete, false); loadSymbol(el.input.value); } });
+    el.input.addEventListener("input", renderAutocomplete);
+    el.input.addEventListener("focus", renderAutocomplete);
+    el.autocomplete.addEventListener("click", (e) => {
+      const item = e.target.closest(".ac-item");
+      if (!item) return;
+      el.input.value = item.dataset.sym;
+      show(el.autocomplete, false);
+      loadSymbol(item.dataset.sym);
+    });
+    document.addEventListener("click", (e) => { if (!e.target.closest(".search-box")) show(el.autocomplete, false); });
+
+    el.quick.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-sym]");
+      if (b) loadSymbol(b.dataset.sym);
+    });
+    el.tfRow.addEventListener("click", (e) => {
+      const b = e.target.closest(".tf-btn");
+      if (b) changeTimeframe(b.dataset.interval, b);
+    });
+    el.aiBtn.addEventListener("click", getAnalysis);
+
+    el.bottomNav.addEventListener("click", (e) => {
+      const b = e.target.closest(".nav-tab");
+      if (!b) return;
+      const target = el[b.dataset.target];
+      if (target && !target.classList.contains("hidden")) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+
+    // Подстраховка к IntersectionObserver: пересчёт активной вкладки на каждом
+    // кадре скролла — чтобы поймать итоговую позицию после плавного скролла.
+    let navRaf = 0;
+    window.addEventListener("scroll", () => {
+      if (navRaf) return;
+      navRaf = requestAnimationFrame(() => { navRaf = 0; pickActiveTab(); });
+    }, { passive: true });
+
+    setupNavObserver();
+  </script>
+</body>
+</html>

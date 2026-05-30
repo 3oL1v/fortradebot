@@ -1,0 +1,21 @@
+# Секреты / окружение
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Виртуальные окружения
+venv/
+.venv/
+env/
+
+# Node
+node_modules/
+
+# Прочее
+.DS_Store
+*.log

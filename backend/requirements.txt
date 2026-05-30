@@ -1,0 +1,16 @@
+# --- Backend / API ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+
+# --- Telegram bot ---
+python-telegram-bot>=21.0
+
+# --- AI (Anthropic Claude) ---
+anthropic>=0.40
+
+# --- HTTP / WebSocket клиенты (для BingX) ---
+httpx>=0.27
+websockets>=12.0
+
+# --- Конфигурация ---
+python-dotenv>=1.0
