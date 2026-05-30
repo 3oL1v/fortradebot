@@ -387,6 +387,11 @@
   <script>
     const API_BASE = window.location.origin;
 
+    // Разделы, зависящие от платных/закрытых внешних сервисов — пока выключены.
+    // Включить обратно: поставить true (ai — нужен ANTHROPIC_API_KEY,
+    // liquidations — ключ Coinglass, news — токен CryptoPanic/CryptoCompare).
+    const FEATURES = { ai: false, liquidations: false, news: false };
+
     // --- Telegram WebApp ---
     const tg = window.Telegram?.WebApp;
     if (tg) {
@@ -570,14 +575,14 @@
       show(el.skeleton, true);
 
       try {
-        const [tRes, oRes, fRes, kRes, nRes, lRes, iRes] = await Promise.all([
+        const [tRes, oRes, fRes, kRes, iRes, nRes, lRes] = await Promise.all([
           fetch(`${API_BASE}/api/ticker/${symbol}`),
           fetch(`${API_BASE}/api/orderbook/${symbol}`),
           fetch(`${API_BASE}/api/funding/${symbol}`),
           fetch(`${API_BASE}/api/klines/${symbol}?interval=${state.interval}&limit=100`),
-          fetch(`${API_BASE}/api/news/${symbol}`),
-          fetch(`${API_BASE}/api/liquidations/${symbol}`),
           fetch(`${API_BASE}/api/indicators/${symbol}?interval=${state.interval}`),
+          FEATURES.news ? fetch(`${API_BASE}/api/news/${symbol}`) : Promise.resolve(null),
+          FEATURES.liquidations ? fetch(`${API_BASE}/api/liquidations/${symbol}`) : Promise.resolve(null),
         ]);
 
         if (!tRes.ok) throw new Error("not_found");
@@ -585,9 +590,9 @@
         const orderbook = oRes.ok ? await oRes.json() : null;
         const funding = fRes.ok ? await fRes.json() : null;
         const klines = kRes.ok ? await kRes.json() : [];
-        const news = nRes.ok ? await nRes.json() : [];
-        const liquidations = lRes.ok ? await lRes.json() : null;
         const indicators = iRes.ok ? await iRes.json() : null;
+        const news = (nRes && nRes.ok) ? await nRes.json() : [];
+        const liquidations = (lRes && lRes.ok) ? await lRes.json() : null;
 
         renderPrice(ticker);
         showSection(el.priceSection);
@@ -601,13 +606,10 @@
 
         if (indicators) { showSection(el.indicatorsSection); renderIndicators(indicators); }
 
-        if (liquidations) { showSection(el.liqSection); renderLiquidations(liquidations); }
-
-        renderNews(news);
-        showSection(el.newsSection);
-
-        showSection(el.aiSection);
-        show(el.aiOutput, false);
+        // Разделы платных/закрытых сервисов — показываем только при включённом флаге.
+        if (FEATURES.liquidations && liquidations) { showSection(el.liqSection); renderLiquidations(liquidations); }
+        if (FEATURES.news) { renderNews(news); showSection(el.newsSection); }
+        if (FEATURES.ai) { showSection(el.aiSection); show(el.aiOutput, false); }
 
         setConnection(true);
         startAllTimers();
@@ -994,7 +996,11 @@
     }
 
     // --- Нижняя навигация: scroll-spy + клик ---
-    const NAV_TARGETS = ["priceSection", "orderbookSection", "liqSection", "newsSection"];
+    const NAV_TARGETS = ["priceSection", "orderbookSection"]
+      .concat(FEATURES.liquidations ? ["liqSection"] : [])
+      .concat(FEATURES.news ? ["newsSection"] : []);
+    // Прячем вкладки выключенных разделов.
+    [...el.bottomNav.children].forEach((b) => show(b, NAV_TARGETS.includes(b.dataset.target)));
     function setActiveTab(targetId) {
       [...el.bottomNav.children].forEach((b) => b.classList.toggle("active", b.dataset.target === targetId));
     }
