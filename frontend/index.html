@@ -390,7 +390,7 @@
     // Разделы, зависящие от платных/закрытых внешних сервисов — пока выключены.
     // Включить обратно: поставить true (ai — нужен ANTHROPIC_API_KEY,
     // liquidations — ключ Coinglass, news — токен CryptoPanic/CryptoCompare).
-    const FEATURES = { ai: false, liquidations: false, news: false };
+    const FEATURES = { ai: true, liquidations: false, news: true };
 
     // --- Telegram WebApp ---
     const tg = window.Telegram?.WebApp;
@@ -575,14 +575,12 @@
       show(el.skeleton, true);
 
       try {
-        const [tRes, oRes, fRes, kRes, iRes, nRes, lRes] = await Promise.all([
+        const [tRes, oRes, fRes, kRes, iRes] = await Promise.all([
           fetch(`${API_BASE}/api/ticker/${symbol}`),
           fetch(`${API_BASE}/api/orderbook/${symbol}`),
           fetch(`${API_BASE}/api/funding/${symbol}`),
           fetch(`${API_BASE}/api/klines/${symbol}?interval=${state.interval}&limit=100`),
           fetch(`${API_BASE}/api/indicators/${symbol}?interval=${state.interval}`),
-          FEATURES.news ? fetch(`${API_BASE}/api/news/${symbol}`) : Promise.resolve(null),
-          FEATURES.liquidations ? fetch(`${API_BASE}/api/liquidations/${symbol}`) : Promise.resolve(null),
         ]);
 
         if (!tRes.ok) throw new Error("not_found");
@@ -591,8 +589,6 @@
         const funding = fRes.ok ? await fRes.json() : null;
         const klines = kRes.ok ? await kRes.json() : [];
         const indicators = iRes.ok ? await iRes.json() : null;
-        const news = (nRes && nRes.ok) ? await nRes.json() : [];
-        const liquidations = (lRes && lRes.ok) ? await lRes.json() : null;
 
         renderPrice(ticker);
         showSection(el.priceSection);
@@ -606,13 +602,15 @@
 
         if (indicators) { showSection(el.indicatorsSection); renderIndicators(indicators); }
 
-        // Разделы платных/закрытых сервисов — показываем только при включённом флаге.
-        if (FEATURES.liquidations && liquidations) { showSection(el.liqSection); renderLiquidations(liquidations); }
-        if (FEATURES.news) { renderNews(news); showSection(el.newsSection); }
         if (FEATURES.ai) { showSection(el.aiSection); show(el.aiOutput, false); }
 
         setConnection(true);
         startAllTimers();
+
+        // Вспомогательные блоки (RSS-новости, ликвидации) грузим отдельно —
+        // чтобы они не задерживали показ цены / стакана / графика.
+        if (FEATURES.liquidations) loadLiquidations(symbol);
+        if (FEATURES.news) loadNews(symbol);
       } catch (err) {
         console.error("loadSymbol failed:", err);
         setConnection(false);
@@ -821,6 +819,9 @@
     // --- 7. Индикаторы ---
     function renderIndicators(data) {
       const cur = data.current || {};
+      state.rsi = cur.rsi;
+      state.trend = cur.trend;
+      state.volumeRatio = cur.volumeRatio;
       const rsi = cur.rsi;
       el.indRsi.textContent = (rsi == null) ? "--" : Number(rsi).toFixed(1);
       el.indRsi.className = "val " + (rsi > 70 ? "down" : rsi < 30 ? "up" : "");
@@ -911,6 +912,25 @@
       return new Date(t).toLocaleDateString("ru-RU");
     }
 
+    // Догрузка вспомогательных блоков (не блокируют ядро). Если монета успела
+    // смениться — ничего не рендерим (защита от гонки).
+    async function loadNews(symbol) {
+      try {
+        const res = await fetch(`${API_BASE}/api/news/${symbol}`);
+        if (state.symbol !== symbol) return;
+        renderNews(res.ok ? await res.json() : []);
+        showSection(el.newsSection);
+      } catch (e) { console.error("loadNews:", e); }
+    }
+    async function loadLiquidations(symbol) {
+      try {
+        const res = await fetch(`${API_BASE}/api/liquidations/${symbol}`);
+        if (state.symbol !== symbol || !res.ok) return;
+        renderLiquidations(await res.json());
+        showSection(el.liqSection);
+      } catch (e) { console.error("loadLiquidations:", e); }
+    }
+
     function renderNews(items) {
       const list = items || [];
       if (!list.length) {
@@ -963,6 +983,7 @@
           body: JSON.stringify({
             symbol: state.symbol, price: state.price, priceChange: state.priceChange,
             fundingRate: state.fundingRate, high24h: state.high24h, low24h: state.low24h, volume24h: state.volume24h,
+            rsi: state.rsi, trend: state.trend, volumeRatio: state.volumeRatio,
           }),
         });
         if (!res.ok) throw new Error("ai_unavailable");
